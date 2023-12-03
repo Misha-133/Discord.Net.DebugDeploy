@@ -8,6 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration.AddEnvironmentVariables("DNET_");
 
+
 builder.Services.AddSingleton<WebhookEventProcessor, GithubWebhookEventProcessor>();
 
 builder.Services.AddHostedService<BuildQueueService>();

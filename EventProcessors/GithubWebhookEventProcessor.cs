@@ -1,18 +1,18 @@
-﻿using Octokit.Webhooks;
+﻿using Discord.Net.DebugDeploy.Services;
+using Octokit.Webhooks;
 using Octokit.Webhooks.Events;
 
 namespace Discord.Net.DebugDeploy.EventProcessors;
 
 public sealed class GithubWebhookEventProcessor(ILogger<GithubWebhookEventProcessor> logger) : WebhookEventProcessor
 {
+    public Queue<string> BuildQueue { get; } = new();
+
     protected override async Task ProcessPushWebhookAsync(WebhookHeaders headers, PushEvent pushEvent)
     {
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(5500);
-            var h = headers;
-            var e = pushEvent;
-            Console.WriteLine("Push event processed!");
-        });
+        logger.LogInformation("Received push");
+
+        var cleanedRef = pushEvent.Ref.Replace("refs/heads/", string.Empty);
+        BuildQueue.Enqueue(cleanedRef);
     }
 }
