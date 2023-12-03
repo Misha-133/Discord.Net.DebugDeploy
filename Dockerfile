@@ -18,7 +18,7 @@ RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y dotnet-sdk-8.0
 
-USER 1001
+USER app
 
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 
