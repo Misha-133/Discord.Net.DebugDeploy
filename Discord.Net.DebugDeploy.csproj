@@ -24,11 +24,6 @@
     <Compile Remove="repo\**" />
     <EmbeddedResource Remove="repo\**" />
     <None Remove="repo\**" />
-
-    <Content Remove="builds\**" />
-    <Compile Remove="builds\**" />
-    <EmbeddedResource Remove="builds\**" />
-    <None Remove="builds\**" />
   </ItemGroup>
 
 </Project>

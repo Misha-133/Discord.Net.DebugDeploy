@@ -1,6 +1,11 @@
 ﻿using System.Diagnostics;
+using System.IO;
+using System.Threading;
+
 using Discord.Net.DebugDeploy.EventProcessors;
+
 using LibGit2Sharp;
+
 using Octokit.Webhooks;
 
 namespace Discord.Net.DebugDeploy.Services;
@@ -33,7 +38,7 @@ public class BuildQueueService(ILogger<BuildQueueService> logger, IConfiguration
             }
         }
 
-        logger.LogInformation("Starting restoring");
+        logger.LogInformation("Starting restore");
 
         var p = Process.Start("dotnet", $"restore {path}");
 
@@ -52,7 +57,7 @@ public class BuildQueueService(ILogger<BuildQueueService> logger, IConfiguration
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        
+
     }
 
     public async Task BuildLoop(CancellationToken token)
@@ -60,24 +65,94 @@ public class BuildQueueService(ILogger<BuildQueueService> logger, IConfiguration
         var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         while (!token.IsCancellationRequested && await timer.WaitForNextTickAsync(token))
         {
-            var queue = ((GithubWebhookEventProcessor)webhook).BuildQueue;
-
-            if (queue.TryDequeue(out var branch))
+            try
             {
-                logger.LogInformation($"Building {branch}");
-                var path = Path.Combine(Environment.CurrentDirectory, "repo/");
-                var p = Process.Start("dotnet", $"build {path} -c Release --output {Path.Combine(Environment.CurrentDirectory, "builds", branch)} --version-suffix {branch}");
+                var queue = ((GithubWebhookEventProcessor)webhook).BuildQueue;
 
-                p.OutputDataReceived += (sender, args) =>
+                if (queue.TryDequeue(out var branch))
                 {
-                    logger.LogInformation(args.Data ?? string.Empty);
-                };
+                    logger.LogInformation($"Building {branch}");
 
-                await p.WaitForExitAsync(token);
-                logger.LogInformation($"Build {branch} complete");
+                    var path = Path.Combine(Environment.CurrentDirectory, "repo/");
+
+                    try
+                    {
+                        using (var repository = new Repository(Path.Combine(path)))
+                        {
+                            var remote = repository.Network.Remotes["origin"];
+                            var refSpecs = remote.FetchRefSpecs.Select(x => x.Specification);
+                            Commands.Fetch(repository, remote.Name, refSpecs, null, "fetch");
+
+                            Commands.Checkout(repository, branch);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Failed to checkout branch");
+                        continue;
+                    }
+
+                    logger.LogInformation("Starting restore");
+
+                    var p = Process.Start("dotnet", $"restore {path}");
+
+                    p.OutputDataReceived += (sender, args) => { logger.LogDebug(args.Data ?? string.Empty); };
+
+                    await p.WaitForExitAsync(token);
+
+                    logger.LogInformation("Restore complete");
+
+                    var suffix = branch.Replace('/', '-');
+
+                    p = Process.Start("dotnet", $"build {Path.Combine(path, "Discord.Net.sln")} --no-restore -c Release -v minimal --version-suffix {suffix} -p:TreatWarningsAsErrors=False");
+
+                    p.OutputDataReceived += (sender, args) => { logger.LogDebug(args.Data ?? string.Empty); };
+
+                    await p.WaitForExitAsync(token);
+
+                    logger.LogInformation($"Build {branch} complete");
+
+                    foreach (var (exe, args) in PackSteps)
+                    {
+                        p = Process.Start(exe, string.Format(args, suffix));
+
+                        p.OutputDataReceived += (sender, args) => { logger.LogDebug(args.Data ?? string.Empty); };
+
+                        await p.WaitForExitAsync(token);
+                    }
+
+                    logger.LogInformation($"Pack {branch} complete");
+
+                    foreach (var file in FindNugetFiles(path, suffix))
+                    {
+                        p = Process.Start("dotnet", $"nuget push \"{file}\" -s {configuration["Nuget"]} -k {configuration["NugetKey"]}");
+
+                        p.OutputDataReceived += (sender, args) => { logger.LogDebug(args.Data ?? string.Empty); };
+
+                        await p.WaitForExitAsync(token);
+                    }
+                }
             }
-
-            await Task.Delay(1000, token);
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Run failed");
+            }
         }
+    }
+
+    private (string, string)[] PackSteps =
+    {
+        ("dotnet", "pack \"repo/src/Discord.Net.Core/Discord.Net.Core.csproj\" --no-restore --no-build -v minimal --version-suffix {0}"),
+        ("dotnet", "pack \"repo/src/Discord.Net.Rest/Discord.Net.Rest.csproj\" --no-restore --no-build -v minimal --version-suffix {0}"),
+        ("dotnet", "pack \"repo/src/Discord.Net.WebSocket/Discord.Net.WebSocket.csproj\" --no-restore --no-build -v minimal --version-suffix {0}"),
+        ("dotnet", "pack \"repo/src/Discord.Net.Commands/Discord.Net.Commands.csproj\" --no-restore --no-build -v minimal --version-suffix {0}"),
+        ("dotnet", "pack \"repo/src/Discord.Net.Webhook/Discord.Net.Webhook.csproj\" --no-restore --no-build -v minimal --version-suffix {0}"),
+        ("dotnet", "pack \"repo/src/Discord.Net.Interactions/Discord.Net.Interactions.csproj\" --no-restore --no-build -v minimal --version-suffix {0}"),
+    };
+
+    private string[] FindNugetFiles(string path, string branch)
+    {
+        var files = Directory.GetFiles(path, $"*{branch}.nupkg", SearchOption.AllDirectories);
+        return files;
     }
 }
