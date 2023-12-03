@@ -92,6 +92,7 @@ public class BuildQueueService(ILogger<BuildQueueService> logger, IConfiguration
                         continue;
                     }
 
+
                     logger.LogInformation("Starting restore");
 
                     var p = Process.Start("dotnet", $"restore {path}");
@@ -102,6 +103,7 @@ public class BuildQueueService(ILogger<BuildQueueService> logger, IConfiguration
 
                     logger.LogInformation("Restore complete");
 
+
                     var suffix = branch.Replace('/', '-');
 
                     p = Process.Start("dotnet", $"build {Path.Combine(path, "Discord.Net.sln")} --no-restore -c Release -v minimal --version-suffix {suffix} -p:TreatWarningsAsErrors=False");
@@ -111,6 +113,7 @@ public class BuildQueueService(ILogger<BuildQueueService> logger, IConfiguration
                     await p.WaitForExitAsync(token);
 
                     logger.LogInformation($"Build {branch} complete");
+
 
                     foreach (var (exe, args) in PackSteps)
                     {
@@ -123,6 +126,7 @@ public class BuildQueueService(ILogger<BuildQueueService> logger, IConfiguration
 
                     logger.LogInformation($"Pack {branch} complete");
 
+
                     foreach (var file in FindNugetFiles(path, suffix))
                     {
                         p = Process.Start("dotnet", $"nuget push \"{file}\" -s {configuration["Nuget"]} -k {configuration["NugetKey"]}");
@@ -130,6 +134,7 @@ public class BuildQueueService(ILogger<BuildQueueService> logger, IConfiguration
                         p.OutputDataReceived += (sender, args) => { logger.LogDebug(args.Data ?? string.Empty); };
 
                         await p.WaitForExitAsync(token);
+                        File.Delete(file);
                     }
                 }
             }
@@ -148,6 +153,7 @@ public class BuildQueueService(ILogger<BuildQueueService> logger, IConfiguration
         ("dotnet", "pack \"repo/src/Discord.Net.Commands/Discord.Net.Commands.csproj\" --no-restore --no-build -v minimal --version-suffix {0}"),
         ("dotnet", "pack \"repo/src/Discord.Net.Webhook/Discord.Net.Webhook.csproj\" --no-restore --no-build -v minimal --version-suffix {0}"),
         ("dotnet", "pack \"repo/src/Discord.Net.Interactions/Discord.Net.Interactions.csproj\" --no-restore --no-build -v minimal --version-suffix {0}"),
+        //("dotnet", "nuget pack \"repo/src/Discord.Net/Discord.Net.nuspec\" -suffix {0}")
     };
 
     private string[] FindNugetFiles(string path, string branch)

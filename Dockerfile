@@ -3,14 +3,24 @@
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
 USER app
 WORKDIR /app
-EXPOSE 8080
+EXPOSE 5500
+
+USER root
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y wget git
+
+RUN wget https://packages.microsoft.com/config/ubuntu/20.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+RUN dpkg -i packages-microsoft-prod.deb
+RUN rm packages-microsoft-prod.deb
+
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y dotnet-sdk-8.0
+
+USER 1001
 
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
-RUN apt-get update && apt-get install -y --no-install-recommends \
-		git \
-		&& \
-	apt-get clean && \
-	rm -rf /var/lib/apt/lists/*
 
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
