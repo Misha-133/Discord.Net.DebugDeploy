@@ -104,7 +104,7 @@ public class BuildQueueService(ILogger<BuildQueueService> logger, IConfiguration
                     logger.LogInformation("Restore complete");
 
 
-                    var suffix = branch.Replace('/', '-');
+                    var suffix = branch.Replace('/', '-') + $"-{DateTimeOffset.Now:yyyy-MM-dd-HH-mm}";
 
                     p = Process.Start("dotnet", $"build {Path.Combine(path, "Discord.Net.sln")} --no-restore -c Release -v minimal --version-suffix {suffix} -p:TreatWarningsAsErrors=False");
 
